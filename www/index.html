@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no, width=device-width">
+		<title>SimplePoker</title>
+
+		<link href="lib/ionic/css/ionic.css" rel="stylesheet">
+		<link href="css/style.css" rel="stylesheet">
+
+		<!-- IF using Sass (run gulp sass first), then uncomment below and remove the CSS includes above
+		<link href="css/ionic.app.css" rel="stylesheet">
+		-->
+
+		<!-- ionic/angularjs js -->
+		<script src="lib/ionic/js/ionic.bundle.js"></script>
+
+		<!-- cordova script (this will be a 404 during development) -->
+		<script src="cordova.js"></script>
+
+		<!-- your app's js -->
+		<script src="js/app.js"></script>
+
+		<script src="js/deck.js"></script>
+	</head>
+	<body ng-app="starter">
+
+		<ion-pane>
+			<ion-header-bar class="bar-stable">
+				<h1 class="title">SimplePoker</h1>
+				<!-- <button class="button">Stats</button> -->
+			</ion-header-bar>
+			<ion-content>
+
+				<div class="card" id="deck">
+					<a onclick="deal();">
+						<img src="cards/front.png" /><img src="cards/edge.png" />
+					</a>
+					<div id="messagebox">
+						<div id="tip">Tap the deck to deal a hand</div>
+						<button class="button button-energized" onclick="userready();" id="readybutton" style="display:none">Ready</button>
+						<div id="winner"></div>
+					</div>
+				</div>
+
+				<div class="card">
+					<div class="item item-divider">
+						You <span class="handresults user"></span>
+					</div>
+					<div class="item row" id="hand1">
+						<div class="col cardholder card1" onclick="tradein(this, 1);"></div>
+						<div class="col cardholder card2" onclick="tradein(this, 1);"></div>
+						<div class="col cardholder card3" onclick="tradein(this, 1);"></div>
+						<div class="col cardholder card4" onclick="tradein(this, 1);"></div>
+						<div class="col cardholder card5" onclick="tradein(this, 1);"></div>
+					</div>
+				</div>
+
+				<div class="card">
+					<div class="item item-divider">
+						Computer <span class="handresults computer"></span>
+					</div>
+					<div class="item row" id="hand2">
+						<div class="col cardholder card1"></div>
+						<div class="col cardholder card2"></div>
+						<div class="col cardholder card3"></div>
+						<div class="col cardholder card4"></div>
+						<div class="col cardholder card5"></div>
+					</div>
+				</div>
+			</ion-content>
+		</ion-pane>
+
+		<script>
+		var deck = new Deck(); // an object that represents the deck of cards. (js/deck.js)
+		var player_turn; // 1 for the user, 2 for the computer
+		var tradeincards = [];
+
+		var USER = 1; //pseudo-constants
+		var COMP = 2;
+
+		// Shows/hides a given card
+		function flip(card, up) {
+			if(up) {
+				var cardID = card.getAttribute("cardID");
+				card.style.backgroundImage = "url(cards/" + deck.cards[cardID].suit + "/" + deck.cards[cardID].rank + ".png)";
+			}
+			else {
+				card.style.backgroundImage = "url(cards/front.png)";
+			}
+		}
+
+		// Shuffles the deck and deals a new hand to each player
+		function deal() {
+			deck.shuffle();
+
+			// Deal cards out in proper order 
+			for(var i = 1; i <= 5; i++) {
+				for(var j = 1; j <= 2; j++) {
+					var cardID = deck.topcard;
+					deck.setHolder(cardID, j);
+					var card = document.getElementById("hand" + j).getElementsByClassName("card" + i)[0];
+					card.style.backgroundImage = "none";
+					card.setAttribute("cardID", cardID);
+					window.setTimeout(flip, 200*cardID, card, (j == 1 ? true : false));
+				}
+			}
+
+			// Change the tip message and display the "ready" button
+			window.setTimeout(function() {
+				document.getElementById("tip").innerText = "Choose up to three cards to exchange";
+				document.getElementById("readybutton").style.display = "inline-block";
+				player_turn = USER;
+			}, 2000);
+
+			tradeincards = []; //just in case the last rounded ended prematurely
+
+			// Remove messages from previous round
+			document.getElementById("winner").innerHTML = "<br>";
+			document.getElementsByClassName("handresults user")[0].innerText = "";
+			document.getElementsByClassName("handresults computer")[0].innerText = "";
+		}
+
+		// Simply handles the array of cards the player selects to trade in
+		function tradein(card, player) {
+			if(player_turn == player) {
+				// If the user taps an already selected card, unselect it
+				if(tradeincards.indexOf(card) > -1) {
+					tradeincards.splice(tradeincards.indexOf(card), 1);
+					flip(card, true);
+				}
+				// Show a card is selected by flipping it over and add it to the trade-in cards array
+				else if(tradeincards.length < 3) {
+					tradeincards.push(card);
+					flip(card, false);
+				}
+			}
+		}
+
+		// Discards and draws a new card for each one the player selected to trade in
+		function exchangecards(player) {
+			for(var i = 0; i < tradeincards.length; i++) {
+				// Set holder value to -1, meaning discarded
+				var discard = tradeincards[i].getAttribute("cardID");
+				deck.setHolder(discard, -1);
+
+				// Assign newly drawn card to player
+				var cardID = deck.topcard;
+				deck.setHolder(cardID, player);
+				tradeincards[i].setAttribute("cardID", cardID);
+
+				// Show the new cards if it's the user's turn
+				if(player == USER) flip(tradeincards[i], true);
+			}
+			// Clear the trade-in cards array to be used in the next turn
+			tradeincards = [];
+		}
+
+		// Determines the ranking of a hand
+		function checkhand(player, details) {
+			// Collect an array of all the cards in the player's hand
+			var player_hand = document.getElementById("hand" + player).getElementsByClassName("cardholder");
+			var player_hand_ids = [];
+			var rankorder = [];
+			var uniqueranks = [];
+			var rankinstances = [];
+
+			var flushcount = 1;
+			var firstsuit = "";
+
+			// Do an intial runthrough of the cards, filling the rankorder array with the numeric rank values (see ranks[] in js/deck.js)
+			for(var i = 0; i < 5; i++) {
+				var cardID = player_hand[i].getAttribute("cardID");
+				var suit = deck.cards[cardID].suit;
+				var rank = deck.cards[cardID].rank;
+
+				// Look for a flush while we're at it
+				if(i == 0) {
+					firstsuit = suit;
+				}
+				else if(suit == firstsuit) {
+					flushcount++;
+				}
+
+				player_hand_ids.push(cardID);
+				rankorder.push(ranks.indexOf(rank));
+			}
+
+			// Put the ranks in order 
+			rankorder.sort(function(a, b){return a-b});
+
+			// Now determine each unique rank, as well as the number of instances of that rank
+			var straightcount = 1;
+			var lastrank;
+			for(var i = 0; i < rankorder.length; i++) {
+				if(rankorder[i] !== lastrank) {
+					// This is a unique rank, store it
+					uniqueranks.push(rankorder[i]);
+					rankinstances.push(1);
+
+					// Look for a straight while we're at it
+					if(rankorder[i] === lastrank + 1) {
+						straightcount++;
+					}
+				}
+				else {
+					// Found a matching rank
+					rankinstances[rankinstances.length-1]++;
+				}
+				lastrank = rankorder[i];
+			}
+			// This checks for a "steel wheel" straight, meaning the Ace counts as a One: (A-2-3-4-5)
+			if(straightcount == 4 && rankorder[0] == 0 && rankorder[1] == 9) {
+				straightcount++;
+				rankorder.push(rankorder.shift()); // this removes the first element and adds it to the end, making the Ace(one) the low card
+			}
+
+			var hand; // Text to display the results
+			var handranking; // how this hand stacks up against others
+			var kickers; // for comparing against similar hands
+
+			// Now actually determine the hand's value, starting with the highest
+			if(flushcount == 5 && straightcount == 5) {
+				// Already found a flush and a straight, if the top card's rank is 0 (Ace), it's royal
+				if(rankorder[0] == 0) {
+					hand = "Royal Flush!!!";
+					handranking = 1;
+					kickers = [0]; //no kickers, nothing beats this. Two royal flushes tie (I'd love to see this happen)
+				}
+				else {
+					hand = ranks[rankorder[0]] + "-high Straight Flush!!";
+					handranking = 2;
+					kickers = [rankorder[0]]; //the high card breaks a tie
+				}
+			}
+			else if(flushcount == 5) {
+				hand = "Flush!";
+				handranking = 5;
+				kickers = rankorder.slice(); //flushes are compared by high card as well, but we need all of them. slice() makes a clone of the array
+			}
+			else if(straightcount == 5) {
+				hand = ranks[rankorder[0]] + "-high Straight!";
+				handranking = 6;
+				kickers = [rankorder[0]]; //the high card breaks a tie
+			}
+			else {
+				var pairs = [];
+				var threeofakind = -1; // there can only be one three/four of a kind, so we don't need an array.
+				var fourofakind = -1; // initial value is -1 because this will be storing an array index, if needed.
+
+				// We kept track of matches earlier, now we use this data to look for hands involving matches
+				for(var i = 0; i < uniqueranks.length; i++) {
+					if(rankinstances[i] == 2) {
+						pairs.push(uniqueranks[i]); //store the numeric rank value of the match
+					}
+					else if(rankinstances[i] == 3) {
+						threeofakind = uniqueranks[i];
+					}
+					else if(rankinstances[i] == 4) {
+						fourofakind = uniqueranks[i];
+					}
+				}
+
+				// If a rank value was stored in founrofakind...
+				if(fourofakind > -1) {
+					hand = "Four of a kind! (" + ranks[fourofakind] + "s)";
+					handranking = 3;
+					kickers = [fourofakind]; //the rank of the four of a kind is the kicker
+				}
+				// If we found a threeofakind and a pair...
+				else if(threeofakind > -1 && pairs.length == 1) {
+					hand = "Full house! (" + ranks[threeofakind] + "s over " + ranks[pairs[0]] + "s)";
+					handranking = 4;
+					kickers = [threeofakind]; //the three of a kind is the kicker between to full houses
+				}
+				// Just a threeofakind...
+				else if(threeofakind > -1) {
+					hand = "Three of a kind (" + ranks[threeofakind] + "s)";
+					handranking = 7;
+					kickers = [threeofakind]; //the rank is the kicker. no need for more, since there can't be two threeofakinds of the same rank in 5-card poker.
+				}
+				// Two pairs...
+				else if(pairs.length == 2) {
+					pairs.sort(function(a, b){return a-b}); //sort numerically, because the higher ranking pair is the first kicker
+					hand = "Two pair (" + ranks[pairs[0]] + "s and " + ranks[pairs[1]] + "s)";
+					handranking = 8;
+					kickers = pairs.slice(); //two opposing Two pairs are compared first by the higher pair, the the lower pair, then the remaining card
+					//so we need to find the miscellaneous card that isn't part of either pair
+					for(var i = 0; i < rankorder.length; i++) {
+						if(pairs.indexOf(rankorder[i]) == -1) {  //if it's not in pairs[]
+							kickers.push(rankorder[i]);          //add it to the end of kickers[]
+						}
+					}
+				}
+				// Just a pair...
+				else if(pairs.length == 1) {
+					hand = "Pair (" + ranks[pairs[0]] + "s)";
+					handranking = 9;
+					kickers = [pairs[0]];
+					// once again, we need to add the miscellaneous cards as kickers in case of a tie
+					for(var i = 0; i < rankorder.length; i++) {
+						if(pairs.indexOf(rankorder[i]) == -1) {
+							kickers.push(rankorder[i]);
+						}
+					}
+				}
+				// If nothing else...
+				else { 
+					hand = "High card: " + ranks[rankorder[0]];
+					handranking = 10;
+					kickers = rankorder.slice(); //clone rankorder[] for the kickers
+				}
+			}
+
+			console.log("---PLAYER " + player + "---")
+			console.log("hand:" + hand);
+			console.log("handranking:" + handranking);
+			console.log("kickers:" + kickers);
+			console.log("rankorder:" + rankorder);
+			console.log("uniqueranks:" + uniqueranks);
+			console.log("rankinstances:" + rankinstances);
+			console.log("");
+
+			// Return info as an object
+			var result = {hand:hand, handranking:handranking, kickers:kickers};
+			// The computer wants a little extra...
+			if(details) {
+				result["rankorder"] = rankorder;
+				// result["uniqueranks"] = uniqueranks;
+				// result["rankinstances"] = rankinstances;
+				result["pairs"] = pairs;
+				result["threeofakind"] = threeofakind;
+				result["fourofakind"] = fourofakind;
+				result["player_hand"] = player_hand;
+				result["player_hand_ids"] = player_hand_ids;
+			}
+			return result;
+		}
+
+		// Determines the winner based on the results from checkhand()
+		function andthewinneris(user, comp) {
+			// Compare handranking, lower is better
+			if(user.handranking < comp.handranking) {
+				return USER;
+			}
+			else if(comp.handranking < user.handranking) {
+				return COMP;
+			}
+			else {
+				// Compare the kickers one by one to break a tie
+				for(var i = 0; i < user.kickers.length; i++) {
+					if(user.kickers[i] < comp.kickers[i]) {
+						return USER;
+					}
+					else if(comp.kickers[i] < user.kickers[i]) {
+						return COMP;
+					}
+				}
+			}
+			return 0; //tie
+		}
+
+		// The computer plays its turn
+		function computer() {
+			var hand = checkhand(COMP, true);
+			// If we already have a straight or better, do nothing
+			if(hand.handranking <= 6) {
+				return;
+			}
+			// If we have a three of a kind, two pair, or pair...
+			else if(hand.handranking >= 7 && hand.handranking <= 10) {
+				// Hold on to the matching cards, trade in the rest
+				var keepers = [];
+				if(hand.handranking == 7) {//threeofakind
+					keepers.push(ranks[hand.threeofakind]);
+				}
+				else if(hand.handranking == 8) {//two pair
+					keepers.push(ranks[hand.pairs[0]]);
+					keepers.push(ranks[hand.pairs[1]]);
+				}
+				else if(hand.handranking == 9) {//pair
+					keepers.push(ranks[hand.pairs[0]]);
+				}
+				else {//nothing
+					// Just keep the two cards with the highest rank
+					keepers.push(ranks[hand.rankorder[0]]);
+					keepers.push(ranks[hand.rankorder[1]]);
+					// TODO: look for a near-straight or near-flush and go for it
+				}
+
+				// Call tradein() for each card not in keepers[]
+				for(var i = 0; i < 5; i++) {
+					if(keepers.indexOf(deck.cards[hand.player_hand_ids[i]].rank) == -1) {
+						tradein(hand.player_hand[i], COMP);
+					}
+				}
+			}
+		}
+
+		// When the user is done with his turn
+		function userready() {
+			// Draw user's new cards
+			exchangecards(USER);
+			player_turn = COMP;
+			
+			// Change the tip message and remove the "ready" button
+			document.getElementById("readybutton").style.display = "none";
+			document.getElementById("tip").innerText = "Computer is thinking...";
+
+			// Two second delay on the computer's turn to make it seem like an artificially intelligent machine ;)
+			window.setTimeout(function() {
+				// Display the computer's cards
+				var comp_hand = document.getElementById("hand2").getElementsByClassName("cardholder");
+				for(var i = 0; i < comp_hand.length; i++) {
+					flip(comp_hand[i], true);
+				}
+
+				// Determine the winner
+				var user = checkhand(USER);
+				var comp = checkhand(COMP);
+				var winner = andthewinneris(user, comp);
+
+				switch(winner) {
+					case USER: var winnermsg = "<h4>You win!</h4>";
+						break;
+					case COMP: var winnermsg = "<h4>You lose.</h4>";
+						break;
+					default: var winnermsg = "<h4>It's a tie.</h4><h5>Split the pot.</h5>";
+				}
+
+				// // Store the data
+				// var game_stats = JSON.parse(window.localStorage['game_stats'] || '{"winners":[],"user_hands":[],"comp_hands":[]}'); //if this is the first time running, make sure we have the data formatted properly
+				// game_stats["winners"].push(winner);
+				// game_stats["user_hands"].push(user.handranking);
+				// game_stats["comp_hands"].push(comp.handranking);
+				// window.localStorage['game_stats'] = JSON.stringify(game_stats);
+
+				// Finally, show the results
+				document.getElementsByClassName("handresults user")[0].innerText = user.hand;
+				document.getElementsByClassName("handresults computer")[0].innerText = comp.hand;
+				document.getElementById("winner").innerHTML = winnermsg;
+				document.getElementById("tip").innerText = "Tap the deck to deal a new hand";
+			}, 2000);
+
+			// This stuff happens before the Timeout function...
+			computer();
+			exchangecards(COMP);
+		}
+		</script>
+	</body>
+</html>

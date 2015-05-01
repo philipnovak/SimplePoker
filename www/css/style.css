@@ -1,0 +1,27 @@
+#deck {
+	box-shadow: none;
+}
+#deck img {
+	display: inline-block;
+	float: left;
+}
+#messagebox {
+	text-align: right;
+}
+#winner {
+	display: inline-block;
+	float: right;
+	max-width: 75%;
+}
+.card {
+	margin: 10px 5px 0 5px;
+}
+.cardholder {
+	min-height: 100px;
+	background-size: contain;
+	background-repeat: no-repeat;
+}
+.handresults {
+	float: right;
+	font-size: 0.9em;
+}
